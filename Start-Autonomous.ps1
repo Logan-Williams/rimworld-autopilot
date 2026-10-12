@@ -1,5 +1,6 @@
 param(
-    [switch]$StartNow
+    [switch]$StartNow,
+    [switch]$WithOrnith
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,7 +18,20 @@ $python = if ($config -and $config.python_exe) {
 } else { Join-Path $PSScriptRoot '.venv\Scripts\python.exe' }
 $director = Join-Path $PSScriptRoot 'colony_director.py'
 $dataDir = Join-Path $env:LOCALAPPDATA 'RimWorld Autopilot'
+New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 $env:RIMWORLD_AUTOPILOT_PREFERENCES = Join-Path $dataDir 'autopilot-preferences.json'
+$advisorConfig = Join-Path $dataDir 'colony-advisor.json'
+if ($WithOrnith) {
+    if (-not (Test-Path -LiteralPath $advisorConfig)) {
+        @{
+            enabled = $true
+            transport_version = 2
+            base_url = 'http://127.0.0.1:11435'
+            providers = @(@{ model = 'ornith-1.5-9b:latest' })
+        } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $advisorConfig -Encoding utf8
+    }
+    $env:RIMWORLD_AUTOPILOT_ADVISOR = $advisorConfig
+}
 $env:PYTHONIOENCODING = 'utf-8'
 $logDir = Join-Path $dataDir 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null

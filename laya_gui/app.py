@@ -117,6 +117,7 @@ class ControlCenter(tk.Tk):
         overlay = self.preferences.get("overlay") or {}
         self.overlay_enabled_var = tk.BooleanVar(value=bool(overlay.get("enabled", True)))
         self.overlay_compact_var = tk.BooleanVar(value=bool(overlay.get("compact", True)))
+        self.ornith_enabled_var = tk.BooleanVar(value=bool(self.config_data.get("ornith_enabled", False)))
         self.game_folder_var = tk.StringVar(value=str(self.config_data.get("rimworld_path") or tr(self.language, "game_folder_unset")))
 
     def _load_shared_images(self) -> None:
@@ -480,6 +481,8 @@ class ControlCenter(tk.Tk):
         device_box.pack(anchor="w", pady=(8, 6))
         device_box.bind("<<ComboboxSelected>>", lambda _event: self.save_model_device(
             next(key for key, label in device_labels.items() if label == self.model_device_var.get())))
+        ttk.Checkbutton(runtime.body, text=tr(self.language, "ornith_enabled"),
+                        variable=self.ornith_enabled_var, command=self.save_ornith_enabled).pack(anchor="w", pady=(4, 0))
         tk.Label(runtime.body, text=tr(self.language, "model_device_help"), bg=COLORS["panel"], fg=COLORS["muted"],
                  font=FONTS["small"], justify="left", wraplength=940).pack(anchor="w", pady=(0, 8))
         self.model_runtime_label = tk.Label(runtime.body, text=tr(self.language, "device_not_loaded"), bg=COLORS["panel"],
@@ -615,6 +618,16 @@ class ControlCenter(tk.Tk):
             return
         self.config_data = config
         self.footer.configure(text=tr(self.language, "device_saved"), fg=COLORS["cyan"])
+
+    def save_ornith_enabled(self) -> None:
+        config = dict(self.config_data, ornith_enabled=bool(self.ornith_enabled_var.get()))
+        try:
+            save_config(config)
+        except OSError as exc:
+            messagebox.showerror(APP_NAME, f"{tr(self.language, 'error')}: {exc}")
+            return
+        self.config_data = config
+        self.footer.configure(text=tr(self.language, "ornith_saved"), fg=COLORS["cyan"])
 
     def stop_laya(self) -> None:
         try:

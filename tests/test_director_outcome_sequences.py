@@ -31,6 +31,27 @@ class DirectorOutcomeSequences(unittest.TestCase):
             self.assertIn("build_starter_base", second["candidates"])
             self.assertNotEqual(second["decision"]["choice"], "hold_survival")
 
+    def test_known_equipment_rejection_still_uses_action_backoff(self):
+        source, state, client = replay_snapshot(), {}, Orders()
+        memory = director.map_state_for_snapshot(state, source)
+        memory.update(anchor={"x": 120, "z": 120}, growing_anchor={"x": 110, "z": 110}, starter_site_verified=True)
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(director.bridge, "collect_snapshot", side_effect=lambda c: copy.deepcopy(source)), \
+                patch.object(director, "collect_development", side_effect=lambda c, s: s), \
+                patch.object(director, "publish_overlay"), \
+                patch.object(director.colony_behavior_rules, "apply", side_effect=lambda snapshot, candidates: (candidates, {"phase": "isolated"})), \
+                patch.object(director, "execute_action", return_value={
+                    "applied": False, "reason": "equip_target_unreachable_or_reserved"}):
+            path, log = Path(folder)/"state.json", Path(folder)/"log.jsonl"
+            first = director.run_development_cycle(client, Chooser(), state, path, log)
+            self.assertEqual(first["decision"]["choice"], "equip_colonists")
+            restored = json.loads(path.read_text(encoding="utf-8"))
+            failure = director.map_state_for_snapshot(restored, source)["action_failures"]["equip_colonists"]
+            self.assertEqual(1, failure["count"])
+            self.assertGreater(failure["retry_after"], failure["failed_at"])
+            second = director.run_development_cycle(client, Chooser(), restored, path, log)
+            self.assertNotIn("equip_colonists", second["candidates"])
+
     def test_letter_unknown_not_handled_and_retry_does_not_block_other_work(self):
         class Client:
             calls = 0

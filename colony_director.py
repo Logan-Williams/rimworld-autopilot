@@ -35,6 +35,7 @@ import colony_reasoning
 import colony_decision_context as observations
 import colony_behavior_rules
 import colony_learning
+import colony_advisor as advisor
 import colony_outcomes
 import colony_plan
 import colony_medical_recovery as medical_recovery
@@ -2080,8 +2081,7 @@ def remember_action_outcome(map_state: dict[str, Any], choice: str, result: Any)
     else:
         # These providers already hold exact-subject retry memory. A second
         # action-wide gate would hide a different urgent patient or new target.
-        scoped = (colony_modules.owner(choice) is not None or choice in capabilities.ACTIONS
-                  or choice == "equip_colonists")
+        scoped = (colony_modules.owner(choice) is not None or choice in capabilities.ACTIONS)
         reason = (result.get("reason") or result.get("error")) if isinstance(result, dict) else None
         if not scoped or not reason:
             register_action_failure(map_state, choice, reason or "Order produced no acknowledged effect")
@@ -10933,6 +10933,30 @@ def run_development_cycle(client: bridge.RimApiClient, agent: Any, state: dict[s
         snapshot["development"]["temporarily_blocked_actions"] = {
             choice: round(remaining, 1) for choice, remaining in blocked_actions.items()
         }
+    safe_candidates = list(candidates)
+    try:
+        advised_candidates, advisor_audit = advisor.prepare(
+            agent, snapshot, map_state, safe_candidates, ACTION_DESCRIPTIONS, ask_laya_choice)
+        # Defence in depth: the adviser is only permitted to narrow the
+        # controller's already-filtered frontier. A stale or malformed answer
+        # cannot add a command, replace an empty safe frontier, or bypass an
+        # existing feasibility/backoff gate.
+        advised_candidates = list(advised_candidates) if isinstance(advised_candidates, list) else []
+        candidates = [choice for choice in advised_candidates if choice in safe_candidates]
+        if not candidates:
+            candidates = safe_candidates
+            advisor_audit = {**(advisor_audit if isinstance(advisor_audit, dict) else {}),
+                             "status": "invalid_frontier", "reason": "adviser did not retain a safe candidate"}
+        elif len(candidates) != len(advised_candidates):
+            advisor_audit = {**(advisor_audit if isinstance(advisor_audit, dict) else {}),
+                             "discarded_out_of_frontier": True}
+    except Exception as exc:
+        # Advice is optional. A local model/configuration failure must never
+        # stop Laya from choosing among the same independently safe actions.
+        candidates = safe_candidates
+        advisor_audit = {"status": "unavailable", "error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+    snapshot["development"]["advisor"] = advisor_audit
+    details["advisor"] = advisor_audit
     decision = choose_action(agent, snapshot, candidates)
     details = merge_decision_details(details, decision)
     choice = str(decision["choice"])
@@ -10989,6 +11013,13 @@ def run_development_cycle(client: bridge.RimApiClient, agent: Any, state: dict[s
             remember_action_outcome(map_state, choice, result)
             if details.get("expedition") and isinstance(result, dict) and result.get("applied"):
                 map_state.pop("expedition_readiness", None)
+    try:
+        if isinstance(result, dict):
+            advisor.record(map_state, choice, result, advisor_audit)
+    except Exception as exc:
+        advisor_audit = {**advisor_audit, "record_error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+        snapshot["development"]["advisor"] = advisor_audit
+        details["advisor"] = advisor_audit
     if isinstance(result, dict) and result.get("applied") is True:
         learning_stage = colony_learning.stage_decision(
             snapshot, map_state, choice, candidates, scope=learning_scope)
@@ -11016,6 +11047,7 @@ def run_development_cycle(client: bridge.RimApiClient, agent: Any, state: dict[s
     }
     record["previous_outcome"] = snapshot["development"].get("outcome_feedback") or {}
     record["learning"] = snapshot["development"].get("learning") or {}
+    record["advisor"] = snapshot["development"].get("advisor") or {}
     record["behaviour_rules"] = snapshot["development"].get("behaviour_rules") or {}
     record["module_observations"] = snapshot["development"].get("module_status") or {}
     record["module_signals"] = colony_modules.signals(snapshot)

@@ -30,6 +30,7 @@ PACKAGED_CONFIG_PATH = BASE_DIR / "rimworld-autopilot.json"
 LEGACY_CONFIG_PATH = BASE_DIR / "laya-control.json"
 PREFERENCES_PATH = DATA_DIR / "autopilot-preferences.json"
 FEEDBACK_PATH = DATA_DIR / "laya-feedback.jsonl"
+ADVISOR_CONFIG_PATH = DATA_DIR / "colony-advisor.json"
 OBSERVER_STATUS_PATH = DATA_DIR / "logs" / "observer-status.json"
 OBSERVER_PID_PATH = DATA_DIR / "logs" / "observer.pid"
 OBSERVER_LOG_PATH = DATA_DIR / "logs" / "observer.jsonl"
@@ -39,6 +40,7 @@ DEFAULT_CONFIG = {
     "api_url": "http://localhost:8765",
     "device": "auto",
     "interval": 10,
+    "ornith_enabled": False,
 }
 
 
@@ -224,6 +226,29 @@ def request_json(url: str, method: str = "GET", body: dict[str, Any] | None = No
         return json.loads(response.read().decode("utf-8-sig"))
 
 
+def ensure_advisor_profile(path: Path | None = None) -> Path:
+    """Create the local, non-secret Ornith profile only on explicit opt-in."""
+    path = path or ADVISOR_CONFIG_PATH
+    if path.exists():
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+            json.dump({
+                "enabled": True,
+                "transport_version": 2,
+                "base_url": "http://127.0.0.1:11435",
+                "providers": [{"model": "ornith-1.5-9b:latest"}],
+            }, handle, ensure_ascii=False, indent=2)
+        temporary.replace(path)
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink()
+    return path
+
+
 def start_director(config: dict[str, Any], log_path: Path, state_path: Path, pid_path: Path, runtime_status_path: Path) -> int:
     python_exe = Path(str(config["python_exe"]))
     director = Path(str(config["director_script"]))
@@ -241,6 +266,8 @@ def start_director(config: dict[str, Any], log_path: Path, state_path: Path, pid
     ]
     environment = os.environ.copy()
     environment["RIMWORLD_AUTOPILOT_PREFERENCES"] = str(PREFERENCES_PATH)
+    if config.get("ornith_enabled") is True:
+        environment["RIMWORLD_AUTOPILOT_ADVISOR"] = str(ensure_advisor_profile())
     environment["PYTHONIOENCODING"] = "utf-8"
     try:
         runtime_status_path.unlink(missing_ok=True)

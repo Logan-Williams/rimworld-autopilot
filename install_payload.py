@@ -17,6 +17,7 @@ RUNTIME_FILES = (
     "colony_architect.py",
     "colony_actions.py",
     "colony_behavior_rules.py",
+    "colony_advisor.py",
     "colony_capabilities.py",
     "colony_decision_context.py",
     "colony_manufacturing.py",
