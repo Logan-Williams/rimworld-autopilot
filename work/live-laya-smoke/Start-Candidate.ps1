@@ -64,7 +64,20 @@ $arguments = @(
     '--runtime-status', $status
 )
 
-$process = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+# Start-Process joins an argument array on Windows.  Quote every value with
+# whitespace first so the MCP-visible status path remains one Python argument.
+$argumentLine = (($arguments | ForEach-Object {
+    if ($_ -match '"') {
+        throw "Candidate launch argument contains a quote: $_"
+    }
+    if ($_ -match '\s') {
+        '"{0}"' -f $_
+    } else {
+        $_
+    }
+}) -join ' ')
+
+$process = Start-Process -FilePath $python -ArgumentList $argumentLine -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 [pscustomobject]@{
     candidate_commit = $actualCommit
     pid = $process.Id
@@ -73,6 +86,7 @@ $process = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDire
     status = $status
     stdout = $stdout
     stderr = $stderr
+    argument_line = $argumentLine
     source_clean = $true
     device = $Device
     interval_seconds = $Interval

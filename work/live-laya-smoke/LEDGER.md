@@ -46,6 +46,11 @@ the new run.
 - This branch has no user runtime config or virtual environment by design;
   the test must point explicitly at the existing verified local Python/Laya
   environment while keeping the candidate state and logs separate.
+- MCP v0.1.1 read-only startup diagnostics proved the first technical launch
+  reached Python argument parsing but not the model/API: `candidate.stderr`
+  reported `unrecognized arguments: Autopilot\\runtime-status.json`.  The
+  Windows launcher had split the status path at its space.  There were no
+  candidate PID, status, decisions, Laya decisions or Ornith calls.
 
 ## Status
 
@@ -72,6 +77,7 @@ been sent yet.
 
 ## Next action
 
-Verify the standard MCP-visible runtime status is absent or stopped, then run
-the sole candidate.  Confirm from MCP that it publishes `running`, observe at
-least three fresh snapshots, and stop on the first safety failure.
+Verify the launcher quotes every path argument, commit the fix, then verify
+the standard MCP-visible runtime status is stopped before running the sole
+candidate.  Confirm from MCP that it publishes `running`, observe at least
+three fresh snapshots, and stop on the first safety failure.
