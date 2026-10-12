@@ -75,9 +75,36 @@ been sent yet.
 - The new GUI and chat compiler send no RIMAPI request.  MCP integration still
   owns future live observation/status handoff.
 
+## Live MCP receipt: clean candidate
+
+- Fresh MCP preflight observed the same loaded map `0:16622162:27402`, three
+  pawns, no hostiles, advancing tick `63389 -> 63395`, `paused=false`, zero
+  MCP POSTs, and the explicit stopped preflight receipt before launch.
+- The sole clean candidate is commit
+  `6d4b3d50e1b6c337d64f748505d491e4becb8329`, launcher PID `29836`, real
+  Python director PID `4444`.  Its status was MCP-observed as fresh `running`.
+- Three MCP samples showed advancing ticks `70143 -> 71101 -> 72040` on the
+  same map, no endpoint errors or traceback, and zero MCP POSTs.  Laya loaded
+  CUDA in `42.22s`; the recorded prediction time was `29.34ms`.
+- Observed accepted work: `unforbid_supplies` made existing meals reachable
+  (`0 -> 54`); `build_starter_base` created 28 native projects (23 walls, one
+  door, three beds and one torch lamp).  These facts do not claim that the
+  food was produced or the base was complete.
+- Follow-up MCP samples advanced `79300 -> 80513 -> 81737` with the director
+  still running, no fatal/errors and no MCP POSTs.  Projects fell `28 -> 18 ->
+  12`; walls and beds progressed from blueprints to frames and one bed frame
+  reached `21.7%`.  Alerts were empty.  Meals varied `48 -> 40 -> 48`.
+- Open facts, not accepted successes: direct priority changes for several
+  work types were `applied=false` because the effect was not observed; the
+  dry-stockpile footprint was not observed.  Ornith is not part of this clean
+  candidate: an exact-source search found no advisor import/call or configured
+  Ornith loopback path in `colony_director.py`.  A saved `colony_advisor.py`
+  is not an integration.  No manual repair command was issued.
+
 ## Next action
 
-Verify the launcher quotes every path argument, commit the fix, then verify
-the standard MCP-visible runtime status is stopped before running the sole
-candidate.  Confirm from MCP that it publishes `running`, observe at least
-three fresh snapshots, and stop on the first safety failure.
+Keep the sole Laya candidate under MCP read-only observation.  First add a
+bounded candidate decision view and an explicit advisor-availability view;
+they must report `integration_not_observed` rather than infer an Ornith call.
+Design and separately test any real Ornith integration before enabling it in a
+live colony.
