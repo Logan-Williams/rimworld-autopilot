@@ -97,12 +97,30 @@ class PreferenceTests(unittest.TestCase):
     def test_model_context_keeps_note_and_weights(self):
         preferences = laya_preferences.load_preferences_from_value({
             "personal_note": "Build food reserves before luxury rooms",
-            "priorities": {"food": 96, "construction": 22},
+            "priorities": {"food": 96, "construction": 22, "ideology": 71,
+                           "expansion": 20, "development_pace": 24},
         })
         context = laya_preferences.model_context(preferences)
-        self.assertEqual(context["priority_weights_0_to_100"]["food"], 96)
+        self.assertEqual(context["priority_weights_0_to_100"]["food"], 100)
         self.assertIn("food reserves", context["personal_guidance"])
         self.assertIn("safety", context["instruction"])
+        self.assertEqual("peaceful consolidation", context["campaign_controls"]["expansion_posture"])
+
+    def test_campaign_priorities_preserve_hard_care_and_block_zero_expansion_raids(self):
+        preferences = laya_preferences.load_preferences_from_value({
+            "priorities": {"survival": 1, "food": 1, "ideology": 75,
+                           "expansion": 20, "development_pace": 30},
+        })
+        self.assertEqual(100, preferences["priorities"]["survival"])
+        self.assertEqual(100, preferences["priorities"]["food"])
+        self.assertEqual("ideology", laya_preferences.priority_key_for_action("hold_ritual"))
+        self.assertEqual("expansion", laya_preferences.priority_key_for_action("annex_settlement"))
+        self.assertEqual(100, laya_preferences.priority_for_action("tend_critical_patient", preferences))
+        self.assertEqual(
+            ["prepare_trade_caravan"],
+            laya_preferences.filter_candidates(["raid_to:17", "prepare_trade_caravan"], preferences),
+        )
+        self.assertIn("explicit player instruction", laya_preferences.model_context(preferences)["campaign_controls"]["hard_political_boundary"])
 
     def test_friendly_history_translates_strategy_keys(self):
         examples = ["ranged_firepower", "food_crops", "separate_houses", "research_technology"]

@@ -9,18 +9,23 @@ from typing import Any
 
 
 DEFAULT_PRIORITIES = {
-    "survival": 90,
-    "food": 85,
+    "survival": 100,
+    "food": 100,
     "construction": 60,
     "research": 55,
     "economy": 45,
     "defense": 70,
     "animals": 55,
     "diplomacy": 45,
+    "ideology": 75,
+    "expansion": 40,
+    "development_pace": 50,
 }
+VISIBLE_PRIORITIES = ('development_pace', 'construction', 'research', 'economy',
+                      'defense', 'animals', 'diplomacy', 'ideology', 'expansion')
 
 DEFAULT_PREFERENCES: dict[str, Any] = {
-    "schema_version": 2,
+    "schema_version": 3,
     "language": "ru",
     "victory_required": True,
     "technical_logging": False,
@@ -92,6 +97,7 @@ def load_preferences(path: Path | None = None) -> dict[str, Any]:
             pass
     if isinstance(loaded.get("observer"), dict):
         result["observer"]["enabled"] = bool(loaded["observer"].get("enabled", False))
+    result['priorities']['survival'] = result['priorities']['food'] = 100
     result["language"] = "en" if result.get("language") == "en" else "ru"
     result["technical_logging"] = bool(result.get("technical_logging"))
     result["victory_required"] = bool(result.get("victory_required"))
@@ -136,6 +142,7 @@ def load_preferences_from_value(data: dict[str, Any]) -> dict[str, Any]:
                 pass
         if isinstance(data.get("observer"), dict):
             result["observer"]["enabled"] = bool(data["observer"].get("enabled", False))
+    result['priorities']['survival'] = result['priorities']['food'] = 100
     result["language"] = "en" if result.get("language") == "en" else "ru"
     result["technical_logging"] = bool(result.get("technical_logging"))
     result["victory_required"] = bool(result.get("victory_required"))
@@ -145,6 +152,10 @@ def load_preferences_from_value(data: dict[str, Any]) -> dict[str, Any]:
 
 def priority_key_for_action(action: str) -> str:
     name = str(action).lower()
+    if any(token in name for token in ("ideology", "ritual", "temple", "altar", "precept", "convert")):
+        return "ideology"
+    if any(token in name for token in ("raid_to", "settlement", "outpost", "annex", "conquer")):
+        return "expansion"
     if name == "inspirations_recruit":
         return "diplomacy"
     if name in {"build_passive_cooler", "build_room_campfire", "build_room_heater",
@@ -169,22 +180,51 @@ def priority_key_for_action(action: str) -> str:
 
 
 def priority_for_action(action: str, preferences: dict[str, Any]) -> int:
-    return int((preferences.get("priorities") or {}).get(priority_key_for_action(action), 50))
+    key = priority_key_for_action(action)
+    if key in {'survival', 'food'} or any(token in action.lower() for token in
+            ('medical', 'tend', 'feed', 'sleep', 'rest', 'rescue', 'fire', 'retreat', 'thermal',
+             'emergency', 'combat', 'engage', 'civilian', 'stand_down')):
+        return 100
+    priorities = preferences.get('priorities') or {}
+    weight = int(priorities.get(key, 50))
+    pace = int(priorities.get('development_pace', 50))
+    return max(0, min(95, round(weight * (0.6 + pace / 125))))
 
 
 def filter_candidates(candidates: list[str], preferences: dict[str, Any]) -> list[str]:
     safety = preferences.get("safety") or {}
+    priorities = preferences.get("priorities") or {}
     result = list(candidates)
     if safety.get("avoid_unprovoked_attacks"):
+        result = [name for name in result if not name.startswith("raid_to:")]
+    # A zero-expansion campaign must not offer a conquest action merely because
+    # it is technically available.  The independent attack safety boundary
+    # remains stricter whenever it is enabled.
+    if int(priorities.get("expansion", 50)) <= 20:
         result = [name for name in result if not name.startswith("raid_to:")]
     return result or ["hold_survival"]
 
 
 def model_context(preferences: dict[str, Any]) -> dict[str, Any]:
+    priorities = dict(preferences.get("priorities") or {})
+    expansion = int(priorities.get("expansion", 50))
+    priorities.pop('autonomy', None)
+    priorities['survival'] = priorities['food'] = 100
+    pace = int(priorities.get('development_pace', 50))
     return {
-        "priority_weights_0_to_100": dict(preferences.get("priorities") or {}),
+        "priority_weights_0_to_100": priorities,
         "personal_guidance": str(preferences.get("personal_note") or ""),
         "victory_required": bool(preferences.get("victory_required")),
         "safety_preferences": dict(preferences.get("safety") or {}),
-        "instruction": "Treat these as player preferences, not permission to violate feasibility, emergency or safety gates.",
+        "campaign_controls": {
+            "ideology_priority": int(priorities.get("ideology", 50)),
+            "expansion_posture": "peaceful consolidation" if expansion <= 35 else "measured influence" if expansion < 70 else "active expansion",
+            "development_pace": 'cautious: finish existing projects before new optional work' if pace <= 35 else
+                'balanced: develop within available workers and resources' if pace < 70 else
+                'active: pursue feasible construction, research and expansion without displacing essential care',
+            "mandatory_care": 'Always handle food, treatment, rest and immediate safety regardless of development pace. '
+                'Routine orders must not interrupt sleep; life-threatening emergencies remain exceptions.',
+            "hard_political_boundary": "Do not break treaties, select independence, declare war, pay tribute, or choose political letters without an explicit player instruction.",
+        },
+        "instruction": "Treat these as player preferences, not permission to violate feasibility, emergency or safety gates. A high expansion value never overrides the no-unprovoked-attacks safety boundary.",
     }

@@ -64,6 +64,12 @@ def configure_styles(root: tk.Misc) -> ttk.Style:
     style.map("Treeview", background=[("selected", "#39335E")], foreground=[("selected", COLORS["text"])])
     style.configure("Horizontal.TScale", background=COLORS["panel"], troughcolor=COLORS["line"], sliderthickness=16)
     style.configure("TCombobox", fieldbackground=COLORS["panel_alt"], background=COLORS["panel_alt"], foreground=COLORS["text"])
+    style.configure('TSpinbox', fieldbackground=COLORS['panel_alt'], background=COLORS['panel_alt'],
+                    foreground=COLORS['text'], insertcolor=COLORS['cyan'], arrowcolor=COLORS['cyan'])
+    style.configure('TNotebook', background=COLORS['window'], borderwidth=0)
+    style.configure('TNotebook.Tab', background=COLORS['panel_alt'], foreground=COLORS['text'], padding=(16, 10))
+    style.map('TNotebook.Tab', background=[('selected', COLORS['violet'])],
+              foreground=[('selected', '#10121A')])
     return style
 
 
@@ -81,15 +87,30 @@ class ShadowCard(tk.Frame):
         self._body_window = self.canvas.create_window(14, 12, anchor="nw", window=self.body)
         self.canvas.bind("<Configure>", self._redraw)
         self.body.bind("<Configure>", self._sync_request)
-        self.after_idle(self._sync_request)
+        self._sync_job = self.after_idle(self._sync_request)
 
     def _sync_request(self, _event=None) -> None:
+        if self._sync_job:
+            self.after_cancel(self._sync_job)
+            self._sync_job = None
         requested_height = max(60, self.body.winfo_reqheight() + 28)
         requested_width = max(220, self.body.winfo_reqwidth() + 28)
         if int(float(self.canvas.cget("height"))) != requested_height:
             self.canvas.configure(height=requested_height)
         if int(float(self.canvas.cget("width"))) < requested_width:
             self.canvas.configure(width=requested_width)
+
+    def destroy(self) -> None:
+        if self._sync_job:
+            self.after_cancel(self._sync_job)
+            self._sync_job = None
+        super().destroy()
+
+    def request_layout(self) -> None:
+        """Canvas windows have fixed height; explicitly sync after folding content."""
+        if self._sync_job:
+            self.after_cancel(self._sync_job)
+        self._sync_job = self.after_idle(self._sync_request)
 
     def _redraw(self, event: tk.Event) -> None:
         width, height = max(1, event.width), max(1, event.height)
