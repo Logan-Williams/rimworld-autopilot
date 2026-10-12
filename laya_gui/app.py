@@ -16,6 +16,7 @@ from urllib.error import URLError
 from typing import Any
 
 import colony_strategy as strategy
+import laya_chat
 import laya_preferences
 from rimworld_installation import validate_game_path
 
@@ -99,6 +100,7 @@ class ControlCenter(tk.Tk):
         self._build_overview_page()
         self._build_strategy_page()
         self._build_priorities_page()
+        self._build_chat_page()
         self._build_history_page()
         self._build_stream_page()
         self._build_settings_page()
@@ -156,7 +158,7 @@ class ControlCenter(tk.Tk):
         tk.Label(self.sidebar, text="RIMWORLD", bg=COLORS["sidebar"], fg=COLORS["text"], font=("Segoe UI Black", 15)).pack()
         tk.Label(self.sidebar, text="AUTOPILOT", bg=COLORS["sidebar"], fg=COLORS["cyan"], font=("Segoe UI Semibold", 9)).pack(pady=(0, 18))
 
-        for page in ("overview", "strategy", "priorities", "history", "stream", "settings"):
+        for page in ("overview", "strategy", "priorities", "chat", "history", "stream", "settings"):
             icon = None if page == "stream" else self._load_ui_image(f"nav-{page}", f"nav-{page}.png", (34, 34))
             button = FancyButton(
                 self.sidebar, text=tr(self.language, page), width=208, height=52, variant="ghost", align="left",
@@ -306,6 +308,90 @@ class ControlCenter(tk.Tk):
         actions.pack(side="bottom", fill="x", pady=(12, 0))
         ttk.Button(actions, text=tr(self.language, "save"), style="Accent.TButton", command=self.save_priorities).pack(side="left")
         ttk.Button(actions, text=tr(self.language, "reset"), style="Soft.TButton", command=self.reset_priorities).pack(side="right")
+
+    def _build_chat_page(self) -> None:
+        """Build the player-chat surface without giving it a game client."""
+        page = self._new_page("chat", scroll=True)
+        guidance = ShadowCard(page)
+        guidance.pack(fill="x", pady=(0, 14))
+        tk.Label(guidance.body, text=tr(self.language, "chat_title"), bg=COLORS["panel"], fg=COLORS["violet"],
+                 font=FONTS["heading"]).pack(anchor="w")
+        tk.Label(guidance.body, text=tr(self.language, "chat_help"), bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=FONTS["body"], justify="left", wraplength=930).pack(anchor="w", pady=(6, 8))
+        self.chat_scope_label = tk.Label(guidance.body, text="", bg=COLORS["panel"], fg=COLORS["amber"],
+                                         font=FONTS["small"], justify="left", wraplength=930)
+        self.chat_scope_label.pack(anchor="w")
+
+        transcript_card = ShadowCard(page)
+        transcript_card.pack(fill="both", expand=True, pady=(0, 14))
+        tk.Label(transcript_card.body, text=tr(self.language, "chat_transcript"), bg=COLORS["panel"], fg=COLORS["cyan"],
+                 font=FONTS["heading"]).pack(anchor="w", pady=(0, 8))
+        self.chat_transcript = tk.Text(transcript_card.body, height=16, bg=COLORS["panel_alt"], fg=COLORS["text"],
+                                       relief="flat", bd=0, wrap="word", font=FONTS["body"], padx=12, pady=10,
+                                       cursor="arrow")
+        self.chat_transcript.pack(fill="both", expand=True)
+        self.chat_transcript.configure(state="disabled")
+
+        compose = ShadowCard(page)
+        compose.pack(fill="x")
+        tk.Label(compose.body, text=tr(self.language, "chat_input"), bg=COLORS["panel"], fg=COLORS["text"],
+                 font=FONTS["heading"]).pack(anchor="w")
+        self.chat_input = tk.Text(compose.body, height=4, bg=COLORS["panel_alt"], fg=COLORS["text"],
+                                  insertbackground=COLORS["cyan"], relief="flat", wrap="word", font=FONTS["body"],
+                                  padx=10, pady=8)
+        self.chat_input.pack(fill="x", pady=(8, 10))
+        ttk.Button(compose.body, text=tr(self.language, "chat_send"), style="Accent.TButton",
+                   command=self.submit_chat_message).pack(anchor="e")
+        self._refresh_chat_scope()
+        self._render_chat_history()
+
+    def _refresh_chat_scope(self) -> None:
+        if not hasattr(self, "chat_scope_label"):
+            return
+        scope = self.active_map_key or tr(self.language, "chat_scope_unknown")
+        self.chat_scope_label.configure(text=tr(self.language, "chat_scope").format(scope=scope))
+
+    def _render_chat_history(self) -> None:
+        if not hasattr(self, "chat_transcript"):
+            return
+        self.chat_transcript.configure(state="normal")
+        self.chat_transcript.delete("1.0", "end")
+        entries = self.preferences.get("chat_history") or []
+        if not entries:
+            self.chat_transcript.insert("1.0", "Laya\n" + (
+                "Я готова принять цель. Сообщение станет безопасным приоритетом, а не скрытой командой игре."
+                if self.language == "ru" else
+                "I am ready for a goal. Your message becomes a safe priority, not a hidden game command."
+            ))
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            speaker = "Вы" if entry.get("role") == "user" and self.language == "ru" else "You" if entry.get("role") == "user" else "Laya"
+            state = str(entry.get("state") or "")
+            suffix = f" · {state}" if state else ""
+            self.chat_transcript.insert("end", f"{speaker}{suffix}\n{str(entry.get('text') or '')}\n\n")
+        self.chat_transcript.configure(state="disabled")
+        self.chat_transcript.see("end")
+
+    def submit_chat_message(self) -> None:
+        """Persist typed goals only; direct game control belongs to the MCP boundary."""
+        message = self.chat_input.get("1.0", "end").strip() if hasattr(self, "chat_input") else ""
+        result = laya_chat.submit_message(
+            message, map_fingerprint=self.active_map_key, game_tick=self.active_game_tick,
+        )
+        self._capture_preferences()
+        self.preferences["chat_directives"] = laya_chat.merge_directives(
+            self.preferences.get("chat_directives"), result.get("directives"),
+        )
+        self.preferences["chat_history"] = laya_chat.merge_history(
+            self.preferences.get("chat_history"), result.get("history"),
+        )
+        laya_preferences.save_preferences(self.preferences, PREFERENCES_PATH)
+        self.preferences = laya_preferences.load_preferences(PREFERENCES_PATH)
+        if hasattr(self, "chat_input"):
+            self.chat_input.delete("1.0", "end")
+        self._render_chat_history()
+        self.footer.configure(text=tr(self.language, "chat_saved"), fg=COLORS["green"])
 
     def _build_history_page(self) -> None:
         page = self._new_page("history")
@@ -703,6 +789,8 @@ class ControlCenter(tk.Tk):
         map_state = self._load_map_state()
         self._refresh_doctrine(map_state)
         self._refresh_history()
+        if hasattr(self, "chat_scope_label"):
+            ControlCenter._refresh_chat_scope(self)
 
     def _load_map_state(self) -> dict[str, Any]:
         try:

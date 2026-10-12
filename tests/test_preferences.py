@@ -8,7 +8,7 @@ from unittest import mock
 import laya_preferences
 import colony_combat
 import colony_director
-from laya_gui.i18n import humanize
+from laya_gui.i18n import PRIORITY_TEXT, humanize
 from laya_gui.services import append_feedback
 
 
@@ -44,6 +44,9 @@ class PreferenceTests(unittest.TestCase):
             self.assertEqual(loaded["priorities"]["food"], 100)
             self.assertEqual(loaded["priorities"]["research"], 0)
             self.assertTrue(loaded["safety"]["avoid_unprovoked_attacks"])
+
+    def test_legacy_preferences_upgrade_to_current_schema(self):
+        self.assertEqual(4, laya_preferences.load_preferences_from_value({"schema_version": 3})["schema_version"])
 
     def test_overlay_preferences_default_to_compact_and_can_be_hidden(self):
         defaults = laya_preferences.load_preferences_from_value({})
@@ -106,6 +109,23 @@ class PreferenceTests(unittest.TestCase):
         self.assertIn("safety", context["instruction"])
         self.assertEqual("peaceful consolidation", context["campaign_controls"]["expansion_posture"])
 
+    def test_model_context_keeps_only_scoped_structured_chat_goals(self):
+        preferences = laya_preferences.load_preferences_from_value({
+            "chat_directives": [{
+                "id": "thermal_safety", "source_text": "secret free-form instruction",
+                "map_fingerprint": "test:1:0", "created_game_tick": 300,
+            }],
+        })
+        active = laya_preferences.model_context(
+            preferences, map_fingerprint="test:1:0", game_tick=301,
+        )["player_chat_directives"]
+
+        self.assertEqual(["thermal_safety"], [row["id"] for row in active])
+        self.assertNotIn("secret", str(active))
+        self.assertEqual([], laya_preferences.model_context(
+            preferences, map_fingerprint="test:1:0", game_tick=299,
+        )["player_chat_directives"])
+
     def test_campaign_priorities_preserve_hard_care_and_block_zero_expansion_raids(self):
         preferences = laya_preferences.load_preferences_from_value({
             "priorities": {"survival": 1, "food": 1, "ideology": 75,
@@ -143,6 +163,10 @@ class PreferenceTests(unittest.TestCase):
         for language in ("ru", "en"):
             for value in names:
                 self.assertNotIn("_", humanize(value, language), (language, value))
+
+    def test_every_exposed_priority_has_a_gui_label(self):
+        for language in ("ru", "en"):
+            self.assertEqual(set(laya_preferences.DEFAULT_PRIORITIES), set(PRIORITY_TEXT[language]))
 
 
 if __name__ == "__main__":

@@ -47,6 +47,7 @@ import colony_sessions
 import colony_shipbuilding
 from colony_actions import ACTION_DESCRIPTIONS, ACTION_LABELS, ACTION_LABELS_EN
 import laya_preferences
+import laya_chat
 from laya_decisions import ChoiceContextOverflow, NoFeasibleChoice, ask_laya_choice
 
 
@@ -3737,6 +3738,11 @@ def model_decision_context(snapshot: dict[str, Any]) -> dict[str, Any]:
         "last_expedition_attempt": dev.get("last_expedition_attempt") or {},
         "player_weights": (dev.get("user_preferences") or {}).get("priorities") or {},
         "guidance": str((dev.get("user_preferences") or {}).get("personal_note") or "")[:160],
+        "player_chat_directives": laya_chat.active_directives(
+            (dev.get("user_preferences") or {}).get("chat_directives"),
+            current_map_fingerprint=laya_chat.map_fingerprint(snapshot.get("map")),
+            current_game_tick=(snapshot.get("game") or {}).get("tick"),
+        ),
         "animals": {"count": len(animals),
                     "unpenned_roamers": sum(a.get("requires_pen") is True and not a.get("has_suitable_enclosed_pen") for a in animals),
                     "hungry": sum(bridge.first_number(a.get("hunger"), 1) < 0.3 for a in animals),
@@ -6577,7 +6583,11 @@ def build_decision_state(snapshot: dict[str, Any]) -> dict[str, Any]:
             "routes": population["routes"],
             "tradeoff": population["tradeoff"],
         } if population else None),
-        "player_preferences": laya_preferences.model_context(dev.get("user_preferences") or laya_preferences.load_preferences()),
+        "player_preferences": laya_preferences.model_context(
+            dev.get("user_preferences") or laya_preferences.load_preferences(),
+            map_fingerprint=laya_chat.map_fingerprint(snapshot.get("map")),
+            game_tick=(snapshot.get("game") or {}).get("tick"),
+        ),
         "colony": {
             "date": snapshot.get("game", {}).get("date"),
             "wealth": snapshot.get("game", {}).get("wealth"),

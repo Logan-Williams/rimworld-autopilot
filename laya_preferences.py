@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+import laya_chat
+
 
 DEFAULT_PRIORITIES = {
     "survival": 100,
@@ -25,7 +27,7 @@ VISIBLE_PRIORITIES = ('development_pace', 'construction', 'research', 'economy',
                       'defense', 'animals', 'diplomacy', 'ideology', 'expansion')
 
 DEFAULT_PREFERENCES: dict[str, Any] = {
-    "schema_version": 3,
+    "schema_version": 4,
     "language": "ru",
     "victory_required": True,
     "technical_logging": False,
@@ -37,6 +39,10 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "observer": {"enabled": False},
     "priorities": DEFAULT_PRIORITIES,
     "personal_note": "",
+    # Player chat stores only a bounded local transcript.  The director sees
+    # the canonical directive IDs below, never arbitrary chat prose.
+    "chat_directives": [],
+    "chat_history": [],
     "safety": {
         "avoid_unprovoked_attacks": False,
         "prefer_peaceful_trade": False,
@@ -65,6 +71,8 @@ def load_preferences(path: Path | None = None) -> dict[str, Any]:
         "safety": dict(DEFAULT_PREFERENCES["safety"]),
         "overlay": dict(DEFAULT_PREFERENCES["overlay"]),
         "observer": dict(DEFAULT_PREFERENCES["observer"]),
+        "chat_directives": [],
+        "chat_history": [],
     }
     source = path or preferences_path()
     if path is None and not source.exists():
@@ -77,7 +85,7 @@ def load_preferences(path: Path | None = None) -> dict[str, Any]:
         return result
     if not isinstance(loaded, dict):
         return result
-    result.update({key: value for key, value in loaded.items() if key not in {"priorities", "safety", "overlay", "observer"}})
+    result.update({key: value for key, value in loaded.items() if key not in {"priorities", "safety", "overlay", "observer", "chat_directives", "chat_history"}})
     if isinstance(loaded.get("priorities"), dict):
         for key in DEFAULT_PRIORITIES:
             try:
@@ -101,7 +109,10 @@ def load_preferences(path: Path | None = None) -> dict[str, Any]:
     result["language"] = "en" if result.get("language") == "en" else "ru"
     result["technical_logging"] = bool(result.get("technical_logging"))
     result["victory_required"] = bool(result.get("victory_required"))
+    result["schema_version"] = DEFAULT_PREFERENCES["schema_version"]
     result["personal_note"] = str(result.get("personal_note") or "")[:1200]
+    result["chat_directives"] = laya_chat.normalize_directives(loaded.get("chat_directives"))
+    result["chat_history"] = laya_chat.normalize_history(loaded.get("chat_history"))
     return result
 
 
@@ -121,9 +132,11 @@ def load_preferences_from_value(data: dict[str, Any]) -> dict[str, Any]:
         "safety": dict(DEFAULT_PREFERENCES["safety"]),
         "overlay": dict(DEFAULT_PREFERENCES["overlay"]),
         "observer": dict(DEFAULT_PREFERENCES["observer"]),
+        "chat_directives": [],
+        "chat_history": [],
     }
     if isinstance(data, dict):
-        result.update({key: value for key, value in data.items() if key not in {"priorities", "safety", "overlay", "observer"}})
+        result.update({key: value for key, value in data.items() if key not in {"priorities", "safety", "overlay", "observer", "chat_directives", "chat_history"}})
         for key in DEFAULT_PRIORITIES:
             try:
                 result["priorities"][key] = max(0, min(100, int((data.get("priorities") or {}).get(key, result["priorities"][key]))))
@@ -146,7 +159,10 @@ def load_preferences_from_value(data: dict[str, Any]) -> dict[str, Any]:
     result["language"] = "en" if result.get("language") == "en" else "ru"
     result["technical_logging"] = bool(result.get("technical_logging"))
     result["victory_required"] = bool(result.get("victory_required"))
+    result["schema_version"] = DEFAULT_PREFERENCES["schema_version"]
     result["personal_note"] = str(result.get("personal_note") or "")[:1200]
+    result["chat_directives"] = laya_chat.normalize_directives(data.get("chat_directives") if isinstance(data, dict) else None)
+    result["chat_history"] = laya_chat.normalize_history(data.get("chat_history") if isinstance(data, dict) else None)
     return result
 
 
@@ -205,7 +221,8 @@ def filter_candidates(candidates: list[str], preferences: dict[str, Any]) -> lis
     return result or ["hold_survival"]
 
 
-def model_context(preferences: dict[str, Any]) -> dict[str, Any]:
+def model_context(preferences: dict[str, Any], *, map_fingerprint: str | None = None,
+                  game_tick: int | None = None) -> dict[str, Any]:
     priorities = dict(preferences.get("priorities") or {})
     expansion = int(priorities.get("expansion", 50))
     priorities.pop('autonomy', None)
@@ -214,6 +231,10 @@ def model_context(preferences: dict[str, Any]) -> dict[str, Any]:
     return {
         "priority_weights_0_to_100": priorities,
         "personal_guidance": str(preferences.get("personal_note") or ""),
+        "player_chat_directives": laya_chat.active_directives(
+            preferences.get("chat_directives"), current_map_fingerprint=map_fingerprint,
+            current_game_tick=game_tick,
+        ),
         "victory_required": bool(preferences.get("victory_required")),
         "safety_preferences": dict(preferences.get("safety") or {}),
         "campaign_controls": {
@@ -226,5 +247,5 @@ def model_context(preferences: dict[str, Any]) -> dict[str, Any]:
                 'Routine orders must not interrupt sleep; life-threatening emergencies remain exceptions.',
             "hard_political_boundary": "Do not break treaties, select independence, declare war, pay tribute, or choose political letters without an explicit player instruction.",
         },
-        "instruction": "Treat these as player preferences, not permission to violate feasibility, emergency or safety gates. A high expansion value never overrides the no-unprovoked-attacks safety boundary.",
+        "instruction": "Treat these as player preferences, not permission to violate feasibility, emergency or safety gates. Chat directives are canonical goal IDs, never raw player text or game commands. A high expansion value never overrides the no-unprovoked-attacks safety boundary.",
     }
