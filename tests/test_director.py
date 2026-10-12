@@ -1431,6 +1431,15 @@ class DirectorTests(unittest.TestCase):
             self.assertTrue(written)
             self.assertIn('"state": "running"', target.read_text(encoding="utf-8"))
 
+    def test_stopped_runtime_status_can_explicitly_clear_pid(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = pathlib.Path(folder) / "runtime-status.json"
+            written = director.write_runtime_status(target, "stopped", "No director active", pid=None)
+            self.assertTrue(written)
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            self.assertIsNone(payload["pid"])
+            self.assertEqual(payload["state"], "stopped")
+
     def test_colony_state_sharing_race_does_not_stop_director(self):
         with tempfile.TemporaryDirectory() as folder:
             target = pathlib.Path(folder) / "colony-state.json"

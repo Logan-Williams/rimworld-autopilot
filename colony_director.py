@@ -93,6 +93,7 @@ RESEARCH_ROUTE = [
 ]
 
 PATIENT_FEED_RETRY_TICKS = 12000
+_CURRENT_PROCESS_STATUS_PID = object()
 
 
 ACTION_DESCRIPTIONS.update(capabilities.DESCRIPTIONS)
@@ -12069,10 +12070,11 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-def write_runtime_status(path: Path, state: str, detail: str = "", *, model_runtime: dict[str, Any] | None = None) -> bool:
+def write_runtime_status(path: Path, state: str, detail: str = "", *, model_runtime: dict[str, Any] | None = None,
+                         pid: int | None | object = _CURRENT_PROCESS_STATUS_PID) -> bool:
     """Publish health without ever letting a Windows file-sharing race stop Laya."""
     payload = {
-        "pid": os.getpid(),
+        "pid": os.getpid() if pid is _CURRENT_PROCESS_STATUS_PID else pid,
         "state": state,
         "detail": detail[:500],
         "updated_at": bridge.utc_now(),

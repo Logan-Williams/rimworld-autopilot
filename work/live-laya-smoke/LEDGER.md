@@ -2,9 +2,11 @@
 
 ## Scope
 
-Run commit `187bf120df0820d6173cb88eee10c88fe63cfe75` against the user-designated
-test save `Поселение 1` through the existing local RIMAPI endpoint.  Its old
-director state and logs are not inputs to the new run.
+Run the exact clean commit recorded by `Start-Candidate.ps1` against the
+user-designated test save `Поселение 1`.  The operator reads the game only
+through MCP; Laya's existing executor is the sole component permitted to send
+its ordinary game commands.  The old director state and logs are not inputs to
+the new run.
 
 ## Safety boundary
 
@@ -13,6 +15,10 @@ director state and logs are not inputs to the new run.
 - Save the currently open colony before leaving it.
 - The user designated `Поселение 1` as the test world; use new candidate-only
   state/log paths and do not reuse its old director state/logs.
+- Publish only the candidate's lifecycle status to
+  `D:\steam\RimWorld Autopilot\runtime-status.json`, the status location
+  recognized by MCP.  Its PID, state and decision log remain isolated.  While
+  it reports `running`, MCP manual writes must fail closed.
 - Do not reuse any old `colony-state.json`, preferences, decision history or
   pending construction plan.
 - The smoke test may issue ordinary game commands only after candidate startup,
@@ -24,7 +30,7 @@ director state and logs are not inputs to the new run.
    installed local Laya runtime.
 2. Candidate logs/state are created outside the current live installation and
    identify the candidate process.
-3. RIMAPI ticks advance on a newly created map and the candidate has no startup
+3. MCP shows ticks advancing on the loaded map and the candidate has no startup
    traceback, action-description lookup failure, missing-anchor failure or
    memory error during the observed window.
 4. The first accepted actions and later observations are recorded.  This only
@@ -43,11 +49,12 @@ director state and logs are not inputs to the new run.
 
 ## Status
 
-`PAUSED FOR MCP CONTRACT` — the user requested a single MCP control boundary
-and a chat-to-directive interface before candidate game commands.  The local
-chat-to-typed-directive slice is implemented and offline-verified; it sends no
-game command.  Candidate runtime preflight is complete; no candidate game
-command has been sent.
+`PREPARING EXCLUSIVE LIVE TEST` — the user requested an MCP-coordinated test
+of Laya and Ornith on `Поселение 1`.  Stop the old director first, load the
+fresh test-map session, take a read-only receipt, then start only this
+candidate.  The MCP owner observed `Playing`, tick `330`, three pawns and
+zero MCP POSTs after the user loaded the save.  No candidate game command has
+been sent yet.
 
 ## M3 chat application receipt
 
@@ -65,5 +72,6 @@ command has been sent.
 
 ## Next action
 
-Verify the team-owned MCP contract and its safe integration with chat
-directives, then load `Поселение 1` and run the candidate with isolated logs.
+Verify the standard MCP-visible runtime status is absent or stopped, then run
+the sole candidate.  Confirm from MCP that it publishes `running`, observe at
+least three fresh snapshots, and stop on the first safety failure.

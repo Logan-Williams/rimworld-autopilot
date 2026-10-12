@@ -10,21 +10,27 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $python = 'D:\steam\RimWorld Autopilot\.venv\Scripts\python.exe'
 $runtime = Join-Path $PSScriptRoot 'runtime'
-$expectedCommit = '187bf120df0820d6173cb88eee10c88fe63cfe75'
 
 if (-not (Test-Path -LiteralPath $python)) {
     throw "The local Laya Python runtime is unavailable: $python"
 }
 
 $actualCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
-if ($actualCommit -ne $expectedCommit) {
-    throw "Candidate source changed: expected $expectedCommit, got $actualCommit"
+$trackedChanges = @(& git -C $repoRoot status --porcelain --untracked-files=no)
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to inspect candidate source state at $repoRoot"
+}
+if ($trackedChanges.Count -gt 0) {
+    throw "Candidate source has tracked changes; commit or revert them before launch"
 }
 
 New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 $state = Join-Path $runtime 'candidate-state.json'
 $log = Join-Path $runtime 'candidate-decisions.jsonl'
-$status = Join-Path $runtime 'candidate-runtime-status.json'
+# The MCP bridge recognizes only the installation-wide status location.  State,
+# decision logs and PID remain isolated below $runtime; publishing this one
+# status lets the bridge block manual MCP writes while the candidate is alive.
+$status = 'D:\steam\RimWorld Autopilot\runtime-status.json'
 $pidFile = Join-Path $runtime 'candidate.pid'
 $stdout = Join-Path $runtime 'candidate.stdout.log'
 $stderr = Join-Path $runtime 'candidate.stderr.log'
@@ -40,6 +46,7 @@ if (-not $Start) {
         pid = $pidFile
         stdout = $stdout
         stderr = $stderr
+        source_clean = $true
         device = $Device
         interval_seconds = $Interval
     } | ConvertTo-Json -Depth 3
@@ -66,6 +73,7 @@ $process = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDire
     status = $status
     stdout = $stdout
     stderr = $stderr
+    source_clean = $true
     device = $Device
     interval_seconds = $Interval
 } | ConvertTo-Json -Depth 3
