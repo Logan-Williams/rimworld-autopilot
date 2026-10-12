@@ -32,6 +32,7 @@ def reconcile(snapshot: dict[str, Any], map_state: dict[str, Any]) -> dict[str, 
         return feedback
     if tick == prior["tick"]:
         feedback = {"action": prior["action"], "command": prior["command"],
+                    "command_tick": prior["tick"],
                     "status": "awaiting_game_progress", "completion": "unverified"}
         snapshot["development"]["outcome_feedback"] = feedback
         return feedback
@@ -40,6 +41,7 @@ def reconcile(snapshot: dict[str, Any], map_state: dict[str, Any]) -> dict[str, 
                for key, value in prior["before"].items()
                if value is not None and after.get(key) is not None and value != after[key]}
     feedback = {"action": prior["action"], "command": prior["command"],
+                "command_tick": prior["tick"],
                 "reason": prior.get("reason", ""), "elapsed_ticks": tick - prior["tick"],
                 "status": "observed_changes" if changes else "no_measured_change",
                 "changes": changes, "causation": "not_established", "completion": "unverified"}

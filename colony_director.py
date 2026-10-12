@@ -33,6 +33,8 @@ import colony_modules
 import colony_society
 import colony_reasoning
 import colony_decision_context as observations
+import colony_behavior_rules
+import colony_learning
 import colony_outcomes
 import colony_plan
 import colony_medical_recovery as medical_recovery
@@ -10838,6 +10840,8 @@ def run_development_cycle(client: bridge.RimApiClient, agent: Any, state: dict[s
         wildlife.protected_group_actor_ids(snapshot, map_state))
     snapshot["development"]["mental_safety_active_ids"] = mental_safety.reconcile(client, snapshot, map_state).get("active_ids", [])
     colony_outcomes.reconcile(snapshot, map_state)
+    learning_reconciliation = colony_learning.reconcile(snapshot, map_state)
+    snapshot["development"]["learning"] = {"reconciliation": learning_reconciliation}
     colony_plan.reconcile(snapshot, map_state)
     snapshot["development"]["shelter_exposure_days"] = max(
         0.0, (int(snapshot["game"].get("tick") or 0) - int(map_state.get("first_seen_tick") or 0)) / 60000.0
@@ -10901,8 +10905,19 @@ def run_development_cycle(client: bridge.RimApiClient, agent: Any, state: dict[s
     candidates = focus_overdue_shelter_choices(snapshot, candidates)
     candidates = focus_contamination_choices(snapshot, candidates)
     candidates, blocked_actions = filter_backed_off_choices(map_state, candidates)
+    candidates, behaviour_audit = colony_behavior_rules.apply(snapshot, candidates)
+    snapshot["development"]["behaviour_rules"] = behaviour_audit
+    details["behaviour_rules"] = behaviour_audit
     if not candidates:
         candidates = ["hold_survival"]
+    learning_scope = colony_learning.learning_scope(snapshot, candidates, expedition=expedition)
+    candidates, learning_ranking = colony_learning.rank_candidates(
+        snapshot, map_state, candidates, scope=learning_scope)
+    snapshot["development"]["learning"].update({
+        "scope": learning_scope,
+        "ranking": learning_ranking,
+    })
+    details["learning"] = snapshot["development"]["learning"]
     if blocked_actions:
         snapshot["development"]["temporarily_blocked_actions"] = {
             choice: round(remaining, 1) for choice, remaining in blocked_actions.items()
@@ -10963,6 +10978,16 @@ def run_development_cycle(client: bridge.RimApiClient, agent: Any, state: dict[s
             remember_action_outcome(map_state, choice, result)
             if details.get("expedition") and isinstance(result, dict) and result.get("applied"):
                 map_state.pop("expedition_readiness", None)
+    if isinstance(result, dict) and result.get("applied") is True:
+        learning_stage = colony_learning.stage_decision(
+            snapshot, map_state, choice, candidates, scope=learning_scope)
+    else:
+        learning_stage = {
+            "status": "not_staged",
+            "contract": colony_learning.LEARNING_CONTRACT,
+            "reason": "command_not_accepted",
+        }
+    snapshot["development"]["learning"]["stage"] = learning_stage
     try:
         publish_overlay(client, snapshot, candidates, decision)
     except bridge.RimApiError as exc:
@@ -10979,6 +11004,8 @@ def run_development_cycle(client: bridge.RimApiClient, agent: Any, state: dict[s
         "order_outcome": action_outcome(choice, result),
     }
     record["previous_outcome"] = snapshot["development"].get("outcome_feedback") or {}
+    record["learning"] = snapshot["development"].get("learning") or {}
+    record["behaviour_rules"] = snapshot["development"].get("behaviour_rules") or {}
     record["module_observations"] = snapshot["development"].get("module_status") or {}
     record["module_signals"] = colony_modules.signals(snapshot)
     colony_outcomes.record(snapshot, map_state, choice, result)

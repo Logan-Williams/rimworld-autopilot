@@ -18,6 +18,7 @@ class DirectorOutcomeSequences(unittest.TestCase):
                 patch.object(director.bridge, "collect_snapshot", side_effect=lambda c: copy.deepcopy(source)), \
                 patch.object(director, "collect_development", side_effect=lambda c, s: s), \
                 patch.object(director, "publish_overlay"), \
+                patch.object(director.colony_behavior_rules, "apply", side_effect=lambda snapshot, candidates: (candidates, {"phase": "isolated"})), \
                 patch.object(director, "execute_action", return_value={"applied": False, "assignments": [], "responses": []}):
             path, log = Path(folder)/"state.json", Path(folder)/"log.jsonl"
             first = director.run_development_cycle(client, Chooser(), state, path, log)

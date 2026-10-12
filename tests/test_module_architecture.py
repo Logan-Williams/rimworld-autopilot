@@ -109,10 +109,12 @@ class ModuleArchitectureTests(unittest.TestCase):
         outcomes.record(snapshot, memory, "production_feed_batch", {"applied": True})
         self.assertEqual(outcomes.reconcile(snapshot, memory)["status"], "awaiting_game_progress")
         self.assertEqual(snapshot["development"]["outcome_feedback"]["status"], "awaiting_game_progress")
+        self.assertEqual(100, snapshot["development"]["outcome_feedback"]["command_tick"])
         snapshot["game"]["tick"] = 200
         feedback = outcomes.reconcile(snapshot, memory)
         self.assertEqual(feedback["status"], "no_measured_change")
         self.assertEqual(feedback["command"], "accepted")
+        self.assertEqual(100, feedback["command_tick"])
         snapshot["map"]["resources"]["meals"] = 4
         feedback = outcomes.reconcile(snapshot, memory)
         self.assertEqual(feedback["status"], "observed_changes")
